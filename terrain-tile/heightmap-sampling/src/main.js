@@ -5,16 +5,12 @@ import {game} from './game.js';
 import {graphics} from './graphics.js';
 import {math} from './math.js';
 import {noise} from './noise.js';
-import {spline} from './spline.js';
-import {textures} from './textures.js';
 
 import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.112.1/examples/jsm/controls/OrbitControls.js';
 
+let _app = null;
 
-let _APP = null;
-
-
-class HeightGenerator {
+class HeightmapManager {
   constructor(generator, position, minRadius, maxRadius) {
     this._position = position.clone();
     this._radius = [minRadius, maxRadius];
@@ -31,7 +27,7 @@ class HeightGenerator {
   }
 }
 
-class FlaredCornerHeightGenerator {
+class CornerHeightGenerator {
   constructor() {
   }
 
@@ -42,7 +38,6 @@ class FlaredCornerHeightGenerator {
     return [0, 1];
   }
 }
-
 
 class BumpHeightGenerator {
   constructor() {
@@ -59,10 +54,10 @@ class BumpHeightGenerator {
 }
 
 
-class Heightmap {
+class HeightmapGenerator {
   constructor(params, img) {
     this._params = params;
-    this._data = graphics.GetImageData(img);
+    this._data = graphics.getImageData(img);
   }
 
   Get(x, y) {
@@ -101,15 +96,13 @@ class Heightmap {
   }
 }
 
-
-
 class TerrainChunk {
   constructor(params) {
     this._params = params;
-    this._Init(params);
+    this.initialize(params);
   }
 
-  _Init(params) {
+  initialize(params) {
     const size = new THREE.Vector3(
         params.width * params.scale, 0, params.width * params.scale);
 
@@ -126,16 +119,16 @@ class TerrainChunk {
     this._plane.receiveShadow = true;
     params.group.add(this._plane);
 
-    this.Rebuild();
+    this.rebuild();
   }
 
-  Rebuild() {
+  rebuild() {
     const offset = this._params.offset;
     for (let v of this._plane.geometry.vertices) {
       const heightPairs = [];
       let normalization = 0;
       v.z = 0;
-      for (let gen of this._params.heightGenerators) {
+      for (let gen of this._params._heightmapManager) {
         heightPairs.push(gen.Get(v.x + offset.x, v.y + offset.y));
         normalization += heightPairs[heightPairs.length-1][1];
       }
@@ -148,8 +141,8 @@ class TerrainChunk {
     }
 
     // DEMO
-    if (this._params.heightGenerators.length > 1 && offset.x == 0 && offset.y == 0) {
-      const gen = this._params.heightGenerators[0];
+    if (this._params._heightmapManager.length > 1 && offset.x == 0 && offset.y == 0) {
+      const gen = this._params._heightmapManager[0];
       const maxHeight = 16.0;
       const GREEN = new THREE.Color(0x46b00c);
 
@@ -180,25 +173,42 @@ class TerrainChunk {
             new THREE.Color(0xFFFFFF),
         ];
       }
-
     }
+
     this._plane.geometry.verticesNeedUpdate = true;
     this._plane.geometry.computeVertexNormals();
   }
 }
 
-class TerrainChunkManager {
+class TerrainTileManager {
   constructor(params) {
     this._chunkSize = 500;
-    this._Init(params);
+    this.initialize(params);
   }
 
-  _Init(params) {
-    this._InitNoise(params);
-    this._InitTerrain(params);
+  initialize(params) {
+    this.initializeHeightmap(params);
+    this.initializeNoise(params);
+    this.initializeTerrain(params);
   }
 
-  _InitNoise(params) {
+  initializeHeightmap(params) {
+    params.guiParams.heightmap = {
+      height: 16,
+    };
+
+    const onHeightmapChanged = () => {
+      for (let k in this._chunks) {
+        this._chunks[k].chunk.Rebuild();
+      }
+    };
+
+    const heightmapFolder = params.gui.addFolder('Terrain.Heightmap');
+    heightmapFolder.add(params.guiParams.heightmap, "height", 0, 128).onChange(
+      onHeightmapChanged);
+  }
+
+  initializeNoise(params) {
     params.guiParams.noise = {
       octaves: 10,
       persistence: 0.5,
@@ -216,54 +226,43 @@ class TerrainChunkManager {
       }
     };
 
-    const noiseRollup = params.gui.addFolder('Terrain.Noise');
-    noiseRollup.add(params.guiParams.noise, "noiseType", ['simplex', 'perlin']).onChange(
+    const noiseFolder = params.gui.addFolder('Terrain.Noise');
+    noiseFolder.add(params.guiParams.noise, "noiseType", ['simplex', 'perlin']).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "scale", 64.0, 1024.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "scale", 64.0, 1024.0).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "octaves", 1, 20, 1).onChange(
+    noiseFolder.add(params.guiParams.noise, "octaves", 1, 20, 1).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "persistence", 0.01, 1.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "persistence", 0.01, 1.0).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "lacunarity", 0.01, 4.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "lacunarity", 0.01, 4.0).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "exponentiation", 0.1, 10.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "exponentiation", 0.1, 10.0).onChange(
         onNoiseChanged);
-    noiseRollup.add(params.guiParams.noise, "height", 0, 256).onChange(
+    noiseFolder.add(params.guiParams.noise, "height", 0, 256).onChange(
         onNoiseChanged);
 
     this._noise = new noise.Noise(params.guiParams.noise);
-
-    params.guiParams.heightmap = {
-      height: 16,
-    };
-
-    const heightmapRollup = params.gui.addFolder('Terrain.Heightmap');
-    heightmapRollup.add(params.guiParams.heightmap, "height", 0, 128).onChange(
-        onNoiseChanged);
   }
 
-  _InitTerrain(params) {
-    params.guiParams.terrain= {
+  initializeTerrain(params) {
+    params.guiParams.mesh = {
       wireframe: false,
     };
+
+    const meshFolder = params.gui.addFolder('Terrain.Mesh');
+    meshFolder.add(params.guiParams.mesh, "wireframe").onChange(() => {
+      for (let k in this._chunks) {
+        this._chunks[k].chunk._plane.material.wireframe = params.guiParams.mesh.wireframe;
+      }
+    });
 
     this._group = new THREE.Group()
     this._group.rotation.x = -Math.PI / 2;
     params.scene.add(this._group);
 
-    const terrainRollup = params.gui.addFolder('Terrain');
-    terrainRollup.add(params.guiParams.terrain, "wireframe").onChange(() => {
-      for (let k in this._chunks) {
-        this._chunks[k].chunk._plane.material.wireframe = params.guiParams.terrain.wireframe;
-      }
-    });
-
     this._chunks = {};
     this._params = params;
-
-    // DEMO
-    // this._AddChunk(0, 0);
 
     for (let x = -1; x <= 1; x++) {
       for (let z = -1; z <= 1; z++) {
@@ -272,7 +271,7 @@ class TerrainChunkManager {
     }
   }
 
-  _Key(x, z) {
+  getKey(x, z) {
     return x + '.' + z;
   }
 
@@ -283,17 +282,18 @@ class TerrainChunkManager {
       offset: new THREE.Vector3(offset.x, offset.y, 0),
       scale: 1,
       width: this._chunkSize,
-      heightGenerators: [new HeightGenerator(this._noise, offset, 100000, 100000 + 1)],
+      _heightmapManager: [new HeightmapManager(this._noise, offset, 100000, 100000 + 1)],
     });
 
-    const k = this._Key(x, z);
+    const k = this.getKey(x, z);
     const edges = [];
     for (let xi = -1; xi <= 1; xi++) {
       for (let zi = -1; zi <= 1; zi++) {
         if (xi == 0 || zi == 0) {
           continue;
         }
-        edges.push(this._Key(x + xi, z + zi));
+
+        edges.push(this.getKey(x + xi, z + zi));
       }
     }
 
@@ -304,27 +304,28 @@ class TerrainChunkManager {
   }
 
   SetHeightmap(img) {
-    const heightmap = new HeightGenerator(
-        new Heightmap(this._params.guiParams.heightmap, img),
+    const heightmapManager = new HeightmapManager (
+        new HeightmapGenerator(this._params.guiParams.heightmap, img),
         new THREE.Vector2(0, 0), 250, 300);
 
     for (let k in this._chunks) {
-      this._chunks[k].chunk._params.heightGenerators.unshift(heightmap);
-      this._chunks[k].chunk.Rebuild();
+      this._chunks[k].chunk._params._heightmapManager.unshift(heightmapManager);
+      this._chunks[k].chunk.rebuild();
     }
   }
 
-  Update(timeInSeconds) {
+  update(timeInSeconds) {
+
   }
 }
 
 
-class TerrainSky {
+class TerrainSkyManager {
   constructor(params) {
-    this._Init(params);
+    this.initialize(params);
   }
 
-  _Init(params) {
+  initialize(params) {
     this._sky = new Sky();
     this._sky.scale.setScalar(10000);
     params.scene.add(this._sky);
@@ -363,78 +364,73 @@ class TerrainSky {
       this._sky.material.uniforms['sunPosition'].value.copy(sunPosition);
     };
 
-    const skyRollup = params.gui.addFolder('Sky');
-    skyRollup.add(params.guiParams.sky, "turbidity", 0.1, 30.0).onChange(
+    const skyFolder = params.gui.addFolder('Sky');
+    skyFolder.add(params.guiParams.sky, "turbidity", 0.1, 30.0).onChange(
         onShaderChange);
-    skyRollup.add(params.guiParams.sky, "rayleigh", 0.1, 4.0).onChange(
+    skyFolder.add(params.guiParams.sky, "rayleigh", 0.1, 4.0).onChange(
         onShaderChange);
-    skyRollup.add(params.guiParams.sky, "mieCoefficient", 0.0001, 0.1).onChange(
+    skyFolder.add(params.guiParams.sky, "mieCoefficient", 0.0001, 0.1).onChange(
         onShaderChange);
-    skyRollup.add(params.guiParams.sky, "mieDirectionalG", 0.0, 1.0).onChange(
+    skyFolder.add(params.guiParams.sky, "mieDirectionalG", 0.0, 1.0).onChange(
         onShaderChange);
-    skyRollup.add(params.guiParams.sky, "luminance", 0.0, 2.0).onChange(
+    skyFolder.add(params.guiParams.sky, "luminance", 0.0, 2.0).onChange(
         onShaderChange);
 
-    const sunRollup = params.gui.addFolder('Sun');
-    sunRollup.add(params.guiParams.sun, "inclination", 0.0, 1.0).onChange(
+    const sunFolder = params.gui.addFolder('Sun');
+    sunFolder.add(params.guiParams.sun, "inclination", 0.0, 1.0).onChange(
         onSunChange);
-    sunRollup.add(params.guiParams.sun, "azimuth", 0.0, 1.0).onChange(
+    sunFolder.add(params.guiParams.sun, "azimuth", 0.0, 1.0).onChange(
         onSunChange);
 
     onShaderChange();
     onSunChange();
   }
 
-  Update(timeInSeconds) {
+  update(timeInSeconds) {
+
   }
 }
 
-class ProceduralTerrain_Demo extends game.Game {
+class Heightmap_sampling extends game.Game {
   constructor() {
     super();
   }
 
-  _OnInitialize() {
-    this._textures = new textures.TextureAtlas(this);
-    this._textures.onLoad = () => {};
-    this._controls = this._CreateControls();
-    this._CreateGUI();
+  onInitialize() {
+    this._controls = this.createControls();
+    this._gui = this.createGUI();
 
-    this._entities['_terrain'] = new TerrainChunkManager({
+    this._guiParams = {};
+
+    this._entities['_terrain'] = new TerrainTileManager({
       scene: this._graphics.Scene,
       gui: this._gui,
       guiParams: this._guiParams,
     });
 
-    this._entities['_sky'] = new TerrainSky({
+    this._entities['_sky'] = new TerrainSkyManager({
       scene: this._graphics.Scene,
       gui: this._gui,
       guiParams: this._guiParams,
     });
-    this._LoadBackground();
+
+    this.applyHeightmapSampling();
   }
 
-  _CreateGUI() {
-    this._guiParams = {
-      general: {
-      },
-    };
-    this._gui = new GUI();
-
-    const generalRollup = this._gui.addFolder('General');
-    this._gui.close();
+  createGUI() {
+    const gui = new GUI();
+    return gui;
   }
 
-  _CreateControls() {
-    const controls = new OrbitControls(
-        this._graphics._camera, this._graphics._threejs.domElement);
+  createControls() {
+    const controls = new OrbitControls(this._graphics._camera, this._graphics._threejs.domElement);
     controls.target.set(0, 50, 0);
     controls.object.position.set(475, 345, 900);
     controls.update();
     return controls;
   }
 
-  _LoadBackground() {
+  applyHeightmapSampling() {
     const loader = new THREE.TextureLoader(this._manager);
 
     loader.load('./resources/heightmap-simondev.jpg', (result) => {
@@ -442,13 +438,13 @@ class ProceduralTerrain_Demo extends game.Game {
     });
   }
 
-  _OnStep(timeInSeconds) {
+  onStep(timeInSeconds) {
+
   }
 }
 
-
-function _Main() {
-  _APP = new ProceduralTerrain_Demo();
+function main() {
+  _app = new Heightmap_sampling();
 }
 
-_Main();
+main();

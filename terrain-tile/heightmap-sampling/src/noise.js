@@ -1,6 +1,4 @@
 import 'https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.js';
-//let module = import('https://cdn.jsdelivr.net/npm/noisejs@2.1.0/index.js');
-//import * as Noise from 'https://raw.githubusercontent.com/mikechambers/es6-perlin-module/master/perlin.js';
 import perlin from 'https://cdn.jsdelivr.net/gh/mikechambers/es6-perlin-module@master/perlin.js';
 
 export const noise = (function() {
@@ -14,13 +12,13 @@ export const noise = (function() {
     }
   }
 
-  class _NoiseGenerator {
+  class Noise {
     constructor(params) {
       this._params = params;
-      this._Init();
+      this.initialize();
     }
 
-    _Init() {
+    initialize() {
       this._noise = {
         simplex: new SimplexNoise(this._params.seed),
         perlin: new _PerlinWrapper()
@@ -49,6 +47,6 @@ export const noise = (function() {
   }
 
   return {
-    Noise: _NoiseGenerator
+    Noise
   }
 })();
