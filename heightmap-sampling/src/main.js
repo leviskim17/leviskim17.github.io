@@ -214,7 +214,7 @@ class TerrainTileManager {
       persistence: 0.5,
       lacunarity: 2.0,
       exponentiation: 3.9,
-      height: 97,
+      height: 207,
       scale: 445.0,
       noiseType: 'simplex',
       seed: 1
