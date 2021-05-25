@@ -194,12 +194,12 @@ class TerrainTileManager {
 
   initializeHeightmap(params) {
     params.guiParams.heightmap = {
-      height: 16,
+      height: 128,
     };
 
     const onHeightmapChanged = () => {
       for (let k in this._chunks) {
-        this._chunks[k].chunk.Rebuild();
+        this._chunks[k].chunk.rebuild();
       }
     };
 
@@ -214,15 +214,15 @@ class TerrainTileManager {
       persistence: 0.5,
       lacunarity: 2.0,
       exponentiation: 3.9,
-      height: 64,
-      scale: 256.0,
+      height: 97,
+      scale: 445.0,
       noiseType: 'simplex',
       seed: 1
     };
 
     const onNoiseChanged = () => {
       for (let k in this._chunks) {
-        this._chunks[k].chunk.Rebuild();
+        this._chunks[k].chunk.rebuild();
       }
     };
 
@@ -433,7 +433,7 @@ class Heightmap_sampling extends game.Game {
   applyHeightmapSampling() {
     const loader = new THREE.TextureLoader(this._manager);
 
-    loader.load('./resources/heightmap-simondev.jpg', (result) => {
+    loader.load('./resources/heightmap-test.jpg', (result) => {
       this._entities['_terrain'].SetHeightmap(result.image);
     });
   }
