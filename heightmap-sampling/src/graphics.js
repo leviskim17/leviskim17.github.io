@@ -46,6 +46,7 @@ export const graphics = (function() {
         target.appendChild(this._threejs.domElement);
 
         this._stats = new Stats();
+        target.appendChild(this._stats.dom); // It is for a statistics panel for fps. 
 
         window.addEventListener('resize', () => {
           this.onWindowResize();
