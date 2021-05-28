@@ -17,13 +17,12 @@ class HeightmapManager {
     this._generator = generator;
   }
 
-  Get(x, y) {
+  getFinalHeight(x, y) {
     const distance = this._position.distanceTo(new THREE.Vector2(x, y));
-    let normalization = 1.0 - math.sat(
-        (distance - this._radius[0]) / (this._radius[1] - this._radius[0]));
+    let normalization = 1.0 - math.sat((distance - this._radius[0]) / (this._radius[1] - this._radius[0]));
     normalization = normalization * normalization * (3 - 2 * normalization);
 
-    return [this._generator.Get(x, y), normalization];
+    return [this._generator.getHeight(x, y), normalization];
   }
 }
 
@@ -31,7 +30,7 @@ class CornerHeightGenerator {
   constructor() {
   }
 
-  Get(x, y) {
+  getHeight(x, y) {
     if (x == -250 && y == 250) {
       return [128, 1];
     }
@@ -43,7 +42,7 @@ class BumpHeightGenerator {
   constructor() {
   }
 
-  Get(x, y) {
+  getHeight(x, y) {
     const dist = new THREE.Vector2(x, y).distanceTo(new THREE.Vector2(0, 0));
 
     let h = 1.0 - math.sat(dist / 250.0);
@@ -60,7 +59,7 @@ class HeightmapGenerator {
     this._data = graphics.getImageData(img);
   }
 
-  Get(x, y) {
+  getHeight(x, y) {
     const _GetPixelAsFloat = (x, y) => {
       const position = (x + this._data.width * y) * 4;
       const data = this._data.data;
@@ -129,7 +128,7 @@ class TerrainChunk {
       let normalization = 0;
       v.z = 0;
       for (let gen of this._params._heightmapManager) {
-        heightPairs.push(gen.Get(v.x + offset.x, v.y + offset.y));
+        heightPairs.push(gen.getFinalHeight(v.x + offset.x, v.y + offset.y));
         normalization += heightPairs[heightPairs.length-1][1];
       }
 
@@ -142,7 +141,6 @@ class TerrainChunk {
 
     // DEMO
     if (this._params._heightmapManager.length > 1 && offset.x == 0 && offset.y == 0) {
-      const gen = this._params._heightmapManager[0];
       const maxHeight = 16.0;
       const GREEN = new THREE.Color(0x46b00c);
 
@@ -155,7 +153,7 @@ class TerrainChunk {
 
         const vertexColours = [];
         for (let v of vs) {
-          const [h, _] = gen.Get(v.x + offset.x, v.y + offset.y);
+          const [h, _] = this._params._heightmapManager[0].getFinalHeight(v.x + offset.x, v.y + offset.y);
           const a = math.sat(h / maxHeight);
           const vc = new THREE.Color(0xFFFFFF);
           vc.lerp(GREEN, a);

@@ -62,7 +62,7 @@ export const noise = (function() {
       };
     }
 
-    Get(x, y) {
+    getHeight(x, y) {
       const xs = x / this._params.scale;
       const ys = y / this._params.scale;
       const noiseFunc = this._noise[this._params.noiseType];
