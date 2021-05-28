@@ -433,7 +433,7 @@ class Heightmap_sampling extends game.Game {
   applyHeightmapSampling() {
     const loader = new THREE.TextureLoader(this._manager);
 
-    loader.load('./resources/heightmap-test.jpg', (result) => {
+    loader.load('./resources/heightmap-test.jpeg', (result) => {
       this._entities['_terrain'].SetHeightmap(result.image);
     });
   }
