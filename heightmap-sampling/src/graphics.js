@@ -54,7 +54,7 @@ export const graphics = (function() {
 
         const fov = 60;
         const aspect = 1920 / 1080;
-        const near = 0.1;
+        const near = 1;
         const far = 10000.0;
         this._camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
         this._camera.position.set(75, 20, 0);
@@ -74,7 +74,7 @@ export const graphics = (function() {
         light.castShadow = false;
         this._scene.add(light);
 
-        light = new THREE.DirectionalLight(0x404040, 1, 100);
+        light = new THREE.DirectionalLight(0x404040, 1.5, 100);
         light.position.set(100, 100, -100);
         light.target.position.set(0, 0, 0);
         light.castShadow = false;
