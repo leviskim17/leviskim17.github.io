@@ -36,16 +36,17 @@ export const noise = (function() {
       const xp = x - x1;
       const yp = y - y1;
     
-      const p11 = this._Rand(x1, y1);
-      const p21 = this._Rand(x2, y1);
-      const p12 = this._Rand(x1, y2);
-      const p22 = this._Rand(x2, y2);
+      const p11 = this.rand(x1, y1);
+      const p21 = this.rand(x2, y1);
+      const p12 = this.rand(x1, y2);
+      const p22 = this.rand(x2, y2);
     
       const px1 = math.lerp(xp, p11, p21);
       const px2 = math.lerp(xp, p12, p22);
     
       return math.lerp(yp, px1, px2);
     }
+  
   }
 
   class Noise {
@@ -72,8 +73,7 @@ export const noise = (function() {
       let normalization = 0;
       let total = 0;
       for (let o = 0; o < this._params.octaves; o++) {
-        const noiseValue = noiseFunc.noise2D(
-            xs * frequency, ys * frequency) * 0.5 + 0.5;
+        const noiseValue = noiseFunc.noise2D(xs * frequency, ys * frequency) * 0.5 + 0.5;
         total += noiseValue * amplitude;
         normalization += amplitude;
         amplitude *= G;

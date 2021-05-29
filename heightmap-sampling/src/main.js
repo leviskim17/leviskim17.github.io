@@ -5,19 +5,20 @@ import {game} from './game.js';
 import {graphics} from './graphics.js';
 import {math} from './math.js';
 import {noise} from './noise.js';
+import {spline} from './spline.js';
 
 import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.112.1/examples/jsm/controls/OrbitControls.js';
 
 let _app = null;
 
-class HeightmapManager {
+class HeightSampler {
   constructor(generator, position, minRadius, maxRadius) {
     this._position = position.clone();
     this._radius = [minRadius, maxRadius];
     this._generator = generator;
   }
 
-  getFinalHeight(x, y) {
+  getOffset(x, y) {
     const distance = this._position.distanceTo(new THREE.Vector2(x, y));
     let normalization = 1.0 - math.sat((distance - this._radius[0]) / (this._radius[1] - this._radius[0]));
     normalization = normalization * normalization * (3 - 2 * normalization);
@@ -95,6 +96,14 @@ class HeightmapGenerator {
   }
 }
 
+const _WHITE = new THREE.Color(0x808080);
+const _OCEAN = new THREE.Color(0xd9d592);
+const _BEACH = new THREE.Color(0xd9d592);
+const _SNOW = new THREE.Color(0xFFFFFF);
+const _FOREST_TROPICAL = new THREE.Color(0x4f9f0f);
+const _FOREST_TEMPERATE = new THREE.Color(0x2b960e);
+const _FOREST_BOREAL = new THREE.Color(0x29c100);
+
 class TerrainChunk {
   constructor(params) {
     this._params = params;
@@ -102,8 +111,7 @@ class TerrainChunk {
   }
 
   initialize(params) {
-    const size = new THREE.Vector3(
-        params.width * params.scale, 0, params.width * params.scale);
+    const size = new THREE.Vector3(params.width * params.scale, 0, params.width * params.scale);
 
     this._plane = new THREE.Mesh(
         new THREE.PlaneGeometry(size.x, size.z, 128, 128),
@@ -118,17 +126,53 @@ class TerrainChunk {
     this._plane.receiveShadow = true;
     params.group.add(this._plane);
 
+    const colourLerp = (t, p0, p1) => {
+      const c = p0.clone();
+
+      return c.lerpHSL(p1, t);
+    };
+
+    this._colourSpline = [
+      new spline.LinearSpline(colourLerp),
+      new spline.LinearSpline(colourLerp)
+    ];
+    // Arid
+    this._colourSpline[0].addPoint(0.0, new THREE.Color(0xb7a67d));
+    this._colourSpline[0].addPoint(0.5, new THREE.Color(0xf1e1bc));
+    this._colourSpline[0].addPoint(1.0, _SNOW);
+
+    // Humid
+    this._colourSpline[1].addPoint(0.0, _FOREST_BOREAL);
+    this._colourSpline[1].addPoint(0.5, new THREE.Color(0xcee59c));
+    this._colourSpline[1].addPoint(1.0, _SNOW);
+
     this.rebuild();
   }
 
+  chooseColour(x, y, z) {
+    //return _WHITE;
+    const m = this._params.colorSampler.getHeight(x, z);
+    const h = y / 100.0;
+
+    if (h < 0.05) {
+      return _OCEAN;
+    }
+
+    const c1 = this._colourSpline[0].Get(h);
+    const c2 = this._colourSpline[1].Get(h);
+
+    return c1.lerpHSL(c2, m);
+  }
+
   rebuild() {
+    const colours = [];
     const offset = this._params.offset;
     for (let v of this._plane.geometry.vertices) {
       const heightPairs = [];
       let normalization = 0;
       v.z = 0;
-      for (let gen of this._params._heightmapManager) {
-        heightPairs.push(gen.getFinalHeight(v.x + offset.x, v.y + offset.y));
+      for (let sampler of this._params.heightSamplers) {
+        heightPairs.push(sampler.getOffset(v.x + offset.x, v.y + offset.y));
         normalization += heightPairs[heightPairs.length-1][1];
       }
 
@@ -137,42 +181,20 @@ class TerrainChunk {
           v.z += h[0] * h[1] / normalization;
         }
       }
+
+      colours.push(this.chooseColour(v.x + offset.x, v.z, v.y + offset.y));
     }
 
-    // DEMO
-    if (this._params._heightmapManager.length > 1 && offset.x == 0 && offset.y == 0) {
-      const maxHeight = 16.0;
-      const GREEN = new THREE.Color(0x46b00c);
+    for (let f of this._plane.geometry.faces) {
+      const vs = [f.a, f.b, f.c];
 
-      for (let f of this._plane.geometry.faces) {
-        const vs = [
-            this._plane.geometry.vertices[f.a],
-            this._plane.geometry.vertices[f.b],
-            this._plane.geometry.vertices[f.c]
-        ];
-
-        const vertexColours = [];
-        for (let v of vs) {
-          const [h, _] = this._params._heightmapManager[0].getFinalHeight(v.x + offset.x, v.y + offset.y);
-          const a = math.sat(h / maxHeight);
-          const vc = new THREE.Color(0xFFFFFF);
-          vc.lerp(GREEN, a);
-
-          vertexColours.push(vc);
-        }
-        f.vertexColors = vertexColours;
+      const vertexColours = [];
+      for (let v of vs) {
+        vertexColours.push(colours[v]);
       }
-      this._plane.geometry.elementsNeedUpdate = true;
-    } else {
-      for (let f of this._plane.geometry.faces) {
-        f.vertexColors = [
-            new THREE.Color(0xFFFFFF),
-            new THREE.Color(0xFFFFFF),
-            new THREE.Color(0xFFFFFF),
-        ];
-      }
+      f.vertexColors = vertexColours;
     }
-
+    this._plane.geometry.elementsNeedUpdate = true;
     this._plane.geometry.verticesNeedUpdate = true;
     this._plane.geometry.computeVertexNormals();
   }
@@ -187,6 +209,7 @@ class TerrainTileManager {
   initialize(params) {
     this.initializeHeightmap(params);
     this.initializeNoise(params);
+    this.initializeContour(params);
     this.initializeTerrain(params);
   }
 
@@ -208,12 +231,12 @@ class TerrainTileManager {
 
   initializeNoise(params) {
     params.guiParams.noise = {
-      octaves: 10,
-      persistence: 0.5,
-      lacunarity: 2.0,
-      exponentiation: 3.9,
-      height: 207,
-      scale: 445.0,
+      octaves: 6,
+      persistence: 0.707,
+      lacunarity: 1.8,
+      exponentiation: 4.5,
+      height: 300.0,
+      scale: 800.0,
       noiseType: 'simplex',
       seed: 1
     };
@@ -225,23 +248,58 @@ class TerrainTileManager {
     };
 
     const noiseFolder = params.gui.addFolder('Terrain.Noise');
-    noiseFolder.add(params.guiParams.noise, "noiseType", ['simplex', 'perlin']).onChange(
+    noiseFolder.add(params.guiParams.noise, "noiseType", ['simplex', 'perlin', 'rand']).onChange(
         onNoiseChanged);
-    noiseFolder.add(params.guiParams.noise, "scale", 64.0, 1024.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "scale", 32.0, 4096.0).onChange(
         onNoiseChanged);
     noiseFolder.add(params.guiParams.noise, "octaves", 1, 20, 1).onChange(
         onNoiseChanged);
-    noiseFolder.add(params.guiParams.noise, "persistence", 0.01, 1.0).onChange(
+    noiseFolder.add(params.guiParams.noise, "persistence", 0.25, 1.0).onChange(
         onNoiseChanged);
     noiseFolder.add(params.guiParams.noise, "lacunarity", 0.01, 4.0).onChange(
         onNoiseChanged);
     noiseFolder.add(params.guiParams.noise, "exponentiation", 0.1, 10.0).onChange(
         onNoiseChanged);
-    noiseFolder.add(params.guiParams.noise, "height", 0, 256).onChange(
+    noiseFolder.add(params.guiParams.noise, "height", 0, 512).onChange(
         onNoiseChanged);
 
     this._noise = new noise.Noise(params.guiParams.noise);
   }
+  
+  initializeContour(params) {
+    params.guiParams.biomes = {
+      octaves: 2,
+      persistence: 0.5,
+      lacunarity: 2.0,
+      exponentiation: 3.9,
+      scale: 2048.0,
+      noiseType: 'simplex',
+      seed: 2,
+      exponentiation: 1,
+      height: 1
+    };
+
+    const onNoiseChanged = () => {
+      for (let k in this._chunks) {
+        this._chunks[k].chunk.rebuild();
+      }
+    };
+
+    const noiseRollup = params.gui.addFolder('Terrain.Contour');
+    noiseRollup.add(params.guiParams.biomes, "scale", 64.0, 4096.0).onChange(
+        onNoiseChanged);
+    noiseRollup.add(params.guiParams.biomes, "octaves", 1, 20, 1).onChange(
+        onNoiseChanged);
+    noiseRollup.add(params.guiParams.biomes, "persistence", 0.01, 1.0).onChange(
+        onNoiseChanged);
+    noiseRollup.add(params.guiParams.biomes, "lacunarity", 0.01, 4.0).onChange(
+        onNoiseChanged);
+    noiseRollup.add(params.guiParams.biomes, "exponentiation", 0.1, 10.0).onChange(
+        onNoiseChanged);
+
+    this._contour = new noise.Noise(params.guiParams.biomes);
+  }
+
 
   initializeTerrain(params) {
     params.guiParams.mesh = {
@@ -262,8 +320,10 @@ class TerrainTileManager {
     this._chunks = {};
     this._params = params;
 
-    for (let x = -1; x <= 1; x++) {
-      for (let z = -1; z <= 1; z++) {
+    const w = 0;
+
+    for (let x = -w; x <= w; x++) {
+      for (let z = -w; z <= w; z++) {
         this._AddChunk(x, z);
       }
     }
@@ -280,7 +340,8 @@ class TerrainTileManager {
       offset: new THREE.Vector3(offset.x, offset.y, 0),
       scale: 1,
       width: this._chunkSize,
-      _heightmapManager: [new HeightmapManager(this._noise, offset, 100000, 100000 + 1)],
+      colorSampler: this._contour,
+      heightSamplers: [new HeightSampler(this._noise, offset, 100000, 100000 + 1)],
     });
 
     const k = this.getKey(x, z);
@@ -302,12 +363,10 @@ class TerrainTileManager {
   }
 
   SetHeightmap(img) {
-    const heightmapManager = new HeightmapManager (
-        new HeightmapGenerator(this._params.guiParams.heightmap, img),
-        new THREE.Vector2(0, 0), 250, 300);
+    const heightSampler = new HeightSampler(new HeightmapGenerator(this._params.guiParams.heightmap, img), new THREE.Vector2(0, 0), 250, 300);
 
     for (let k in this._chunks) {
-      this._chunks[k].chunk._params._heightmapManager.unshift(heightmapManager);
+      this._chunks[k].chunk._params.heightSamplers.unshift(heightSampler);
       this._chunks[k].chunk.rebuild();
     }
   }
@@ -316,7 +375,6 @@ class TerrainTileManager {
 
   }
 }
-
 
 class TerrainSkyManager {
   constructor(params) {
